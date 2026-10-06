@@ -25,7 +25,7 @@ jobs:
           set -euo pipefail
           dir=test/fixture-ig/input/includes
           ls -la "$dir"
-          for f in address-de-basis.html address-de-basis-{diff,snapshot,snapshot-by-mustsupport,dict,info,description}.xhtml; do
+          for f in address-de-basis.html address-de-basis-{diff,snapshot,snapshot-by-mustsupport,dict,info,description,disclaimer}.xhtml; do
             test -s "$dir/extern-$f" || { echo "missing or empty: extern-$f"; exit 1; }
           done
           # Links into the definitions must point to anchors on the same page
@@ -33,3 +33,12 @@ jobs:
             echo "unrewritten links to the helper IG's definitions page"; exit 1
           fi
           grep -q 'href="#Address' "$dir/extern-address-de-basis-snapshot.xhtml"
+          grep -q 'external-profile-note' "$dir/extern-address-de-basis-disclaimer.xhtml"
+          # Data file for templates
+          data=test/fixture-ig/input/data/external_profiles.json
+          node -e '
+            const d = require(process.argv[1]);
+            const p = d.profiles[0];
+            if (p.id !== "address-de-basis" || p.page !== "extern-address-de-basis.html" || p.resolverUrls.length !== 2) {
+              console.error(JSON.stringify(d, null, 2)); process.exit(1);
+            }' "$PWD/$data"
