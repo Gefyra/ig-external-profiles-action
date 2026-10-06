@@ -1,0 +1,37 @@
+name: 'IG External Profiles'
+description: 'Render profiles from dependency packages in a FHIR IG (differential, snapshot, definitions) without adding them to the IG package'
+author: 'Gefyra'
+
+branding:
+  icon: 'layers'
+  color: 'blue'
+
+inputs:
+  ig-dir:
+    description: 'Directory of the IG (containing sushi-config.yaml)'
+    required: false
+    default: '.'
+  config:
+    description: 'Configuration file, relative to ig-dir'
+    required: false
+    default: 'external-profiles.yaml'
+  publisher-jar:
+    description: 'Path to publisher.jar. Empty: input-cache/publisher.jar, then /opt/ig/publisher.jar'
+    required: false
+    default: ''
+
+# Runs inside the job container (e.g. ghcr.io/gefyra/ig-publisher-with-snapshot-support),
+# which must provide java, node and sushi.
+runs:
+  using: 'composite'
+  steps:
+    - name: Render external profiles
+      shell: bash
+      env:
+        IG_DIR: ${{ inputs.ig-dir }}
+        CONFIG: ${{ inputs.config }}
+        PUBLISHER_JAR: ${{ inputs.publisher-jar }}
+      run: |
+        args=(--ig "$IG_DIR" --config "$CONFIG")
+        if [ -n "$PUBLISHER_JAR" ]; then args+=(--publisher "$PUBLISHER_JAR"); fi
+        node "$GITHUB_ACTION_PATH/bin/ig-external-profiles.js" "${args[@]}"

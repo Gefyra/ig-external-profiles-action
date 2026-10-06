@@ -1,0 +1,13 @@
+id: test.external.profiles
+canonical: http://example.org/fhir/test-external-profiles
+name: TestExternalProfiles
+title: Test IG for ig-external-profiles
+status: draft
+version: 0.0.0
+fhirVersion: 4.0.1
+copyrightYear: 2026+
+releaseLabel: ci-build
+publisher:
+  name: Gefyra GmbH
+dependencies:
+  de.basisprofil.r4: 1.5.4

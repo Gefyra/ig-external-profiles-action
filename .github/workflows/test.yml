@@ -1,0 +1,35 @@
+name: Test
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/gefyra/ig-publisher-with-snapshot-support:latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Render external profile of the fixture IG
+        uses: ./
+        with:
+          ig-dir: test/fixture-ig
+
+      - name: Check generated includes
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir=test/fixture-ig/input/includes
+          ls -la "$dir"
+          for f in address-de-basis.html address-de-basis-{diff,snapshot,snapshot-by-mustsupport,dict,info,description}.xhtml; do
+            test -s "$dir/extern-$f" || { echo "missing or empty: extern-$f"; exit 1; }
+          done
+          # Links into the definitions must point to anchors on the same page
+          if grep -q 'href="StructureDefinition-address-de-basis-definitions.html' "$dir"/extern-*.xhtml; then
+            echo "unrewritten links to the helper IG's definitions page"; exit 1
+          fi
+          grep -q 'href="#Address' "$dir/extern-address-de-basis-snapshot.xhtml"
