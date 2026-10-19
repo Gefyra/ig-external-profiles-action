@@ -16,7 +16,7 @@ The IG Publisher renders profile tables only for resources of the IG itself. The
 3. Run SUSHI and the IG Publisher. The publisher is stopped as soon as the fragments are written (before Jekyll),
    which saves several minutes
 4. Take the fragments from `temp/pages/_includes`, rewrite links into the definitions page to anchors on the same
-   page, and write them to `input/includes/` of the target IG
+   page, replace Simplifier syntax (see below), and write them to `input/includes/` of the target IG
 
 The target IG's package only receives HTML, no StructureDefinition.
 
@@ -129,6 +129,10 @@ Without the data file the loop does nothing, so the override is safe for IGs tha
 - The fragments contain inline scripts (tree filter). On the HL7 ci-build these are reported as warnings; with your
   own hosting they are harmless
 - Links to resources of other packages use `simplifier.net/resolve` when the package does not state a web URL
+- Simplifier syntax in descriptions and definitions (IGs authored on Simplifier, e.g. ISiK) is not resolved but
+  replaced by plain text: `{{pagelink: Fall, text: Fall-Begriff}}` becomes `Fall-Begriff`, `{{pagelink:Patient-merge}}`
+  becomes `Patient-merge`. Directives that embed content (`{{tree:…}}`, `{{render:…}}` and similar) are removed. The
+  log states how many expressions were replaced per profile
 - Every run builds the helper IG from scratch: about one to three minutes depending on the dependencies
 
 ## License
