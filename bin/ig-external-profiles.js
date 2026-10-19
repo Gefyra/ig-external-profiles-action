@@ -143,7 +143,11 @@ function runPublisher(dir, jar) {
     child.stderr.on('data', onData);
     child.on('close', (code) => {
       logFile.end();
-      if (!stopped) fail(`IG Publisher exited before generating fragments (code ${code}), see ${path.join(dir, 'publisher.log')}`);
+      if (!stopped) {
+        // The helper IG lives in a temp folder that is gone after a CI run, so show the end of the log
+        console.error(buffer.split('\n').slice(-40).join('\n'));
+        fail(`IG Publisher exited before generating fragments (code ${code}), see ${path.join(dir, 'publisher.log')}`);
+      }
       resolve();
     });
   });
