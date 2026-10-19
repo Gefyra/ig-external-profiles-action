@@ -190,6 +190,24 @@ function remainingRelativeLinks(html) {
   return [...found];
 }
 
+// Simplifier syntax such as {{pagelink:Patient-merge}} or {{pagelink: Fall, text: Fall-Begriff}}
+// appears in texts of IGs authored on Simplifier (e.g. ISiK). Outside Simplifier nothing
+// resolves it. The target pages are not known here, so a link becomes its text (or the page
+// name if there is none); directives that embed content (tree, render, ...) are dropped.
+const SIMPLIFIER_LINK = /\{\{\s*(?:pagelink|link)\s*:\s*([^,\s}]+)(?:[,\s]+text\s*:\s*([^}]*?))?\s*\}\}/gi;
+const SIMPLIFIER_EMBED = /\{\{\s*(?:tree|render|json|xml|table|dict|index|select|structure)\s*:[^}]*\}\}/gi;
+
+function stripSimplifierSyntax(text) {
+  let count = 0;
+  const out = String(text ?? '')
+    .replace(SIMPLIFIER_LINK, (_, target, label) => {
+      count++;
+      return (label && label.trim()) || target.split('/').pop().replace(/\.(md|html)$/i, '');
+    })
+    .replace(SIMPLIFIER_EMBED, () => { count++; return ''; });
+  return { text: out, count };
+}
+
 // Markdown links to canonical URLs are not web pages (the publisher's link check fails on
 // them), so they are resolved through Simplifier.
 function rewriteDescription(md) {
@@ -350,17 +368,23 @@ async function main() {
     fs.unlinkSync(path.join(outDir, old));
   }
   profiles.forEach((p, i) => {
+    let simplifier = 0;
     for (const frag of fragments) {
       const src = path.join(includes, `StructureDefinition-${p.id}-${frag}.xhtml`);
       if (!fs.existsSync(src)) fail(`Fragment missing in the helper IG: ${path.basename(src)}`);
-      const html = rewriteLinks(fs.readFileSync(src, 'utf8'), p.id, profilePages);
+      const stripped = stripSimplifierSyntax(rewriteLinks(fs.readFileSync(src, 'utf8'), p.id, profilePages));
+      simplifier += stripped.count;
+      const html = stripped.text;
       const rest = remainingRelativeLinks(html);
       if (rest.length) log(`Warning: ${p.id}-${frag} contains relative links that may be broken in the target IG: ${rest.join(', ')}`);
       fs.writeFileSync(path.join(outDir, `${PREFIX}${p.id}-${frag}.xhtml`), html);
     }
+    const description = stripSimplifierSyntax(rewriteDescription(found[i].res.description));
+    simplifier += description.count;
+    if (simplifier) log(`${p.id}: ${simplifier} Simplifier expression(s) replaced by plain text`);
     fs.writeFileSync(path.join(outDir, `${PREFIX}${p.id}-info.xhtml`), infoFragment(p, found[i].res, L));
     fs.writeFileSync(path.join(outDir, `${PREFIX}${p.id}-description.xhtml`),
-      `{% raw %}${rewriteDescription(found[i].res.description)}{% endraw %}\n`);
+      `{% raw %}${description.text}{% endraw %}\n`);
     fs.writeFileSync(path.join(outDir, `${PREFIX}${p.id}-disclaimer.xhtml`), disclaimerFragment(p, found[i].res, L));
     fs.writeFileSync(path.join(outDir, `${PREFIX}${p.id}.html`), pageInclude(p.id, L));
     log(`${p.id}: include ${PREFIX}${p.id}.html and fragments written to ${path.relative(args.ig, outDir) || '.'}`);
@@ -402,4 +426,6 @@ async function main() {
   else fs.rmSync(work, { recursive: true, force: true });
 }
 
-main().catch((e) => fail(e.stack || String(e)));
+if (require.main === module) main().catch((e) => fail(e.stack || String(e)));
+
+module.exports = { stripSimplifierSyntax };
