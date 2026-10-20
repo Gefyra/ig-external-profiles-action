@@ -359,7 +359,7 @@ async function main() {
   fs.writeFileSync(path.join(work, 'sushi-config.yaml'), YAML.stringify(helperConfig));
   fs.writeFileSync(path.join(work, 'input', 'pagecontent', 'index.md'), 'Helper IG, not published.\n');
   fs.writeFileSync(path.join(work, 'ig.ini'),
-    `[IG]\nig = fsh-generated/resources/ImplementationGuide-${helperConfig.id}.json\ntemplate = ${config.template || 'fhir.base.template#current'}\n`);
+    `[IG]\nig = fsh-generated/resources/ImplementationGuide-${helperConfig.id}.json\ntemplate = ${config.template || 'fhir2.base.template#current'}\n`);
 
   // Take the profiles from the package cache. If a package is missing, the first SUSHI run loads it.
   let found = profiles.map((p) => findProfile(p.package, p.id));
