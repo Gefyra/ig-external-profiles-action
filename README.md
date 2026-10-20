@@ -33,7 +33,7 @@ profiles:
     disclaimer: false               # optional: no notice box; a string replaces the default text
 output: input/includes              # optional
 data: input/data                    # optional: folder for external_profiles.json
-template: fhir.base.template#current  # optional: template of the helper IG
+template: fhir2.base.template#current  # optional: template of the helper IG
 lang: de                            # optional: label language (default: i18n-default-lang of the IG, else en)
 fragments: [diff, snapshot, snapshot-by-mustsupport, dict]  # optional
 ```
