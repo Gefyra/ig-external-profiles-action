@@ -95,6 +95,7 @@ jobs:
 | `ig-dir` | `.` | Directory of the IG |
 | `config` | `external-profiles.yaml` | Configuration file, relative to `ig-dir` |
 | `publisher-jar` | – | Path to `publisher.jar`; otherwise `input-cache/publisher.jar`, then `/opt/ig/publisher.jar` |
+| `tx` | – | Terminology server for the helper IG, passed to the IG Publisher as `-tx`. `n/a` builds without one, for example when `tx.fhir.org` is down; otherwise the publisher's default |
 
 ### Locally
 
@@ -106,7 +107,8 @@ node path/to/bin/ig-external-profiles.js --ig .   # in the IG directory
 ./_genonce.sh
 ```
 
-`--keep` keeps the helper IG for debugging; its path is printed.
+`--keep` keeps the helper IG for debugging; its path is printed. `--tx <server>` is passed to the IG Publisher as
+`-tx`; `--tx n/a` builds the helper IG without a terminology server.
 
 ### On the artifacts page (template)
 

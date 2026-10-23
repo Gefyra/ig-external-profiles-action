@@ -4,7 +4,7 @@
 // must-support view, definitions) into the target IG as includes. The profiles themselves do
 // not become part of the target IG's package, only their HTML rendering does.
 //
-// Usage:  ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--keep]
+// Usage:  ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--tx <server|n/a>] [--keep]
 // See README.md for the configuration file.
 
 'use strict';
@@ -46,15 +46,16 @@ function fail(msg) { console.error(`[ig-external-profiles] ERROR: ${msg}`); proc
 
 // --- Arguments -----------------------------------------------------------------
 function parseArgs(argv) {
-  const args = { ig: '.', config: null, publisher: null, keep: false };
+  const args = { ig: '.', config: null, publisher: null, tx: null, keep: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--ig') args.ig = argv[++i];
     else if (a === '--config') args.config = argv[++i];
     else if (a === '--publisher') args.publisher = argv[++i];
+    else if (a === '--tx') args.tx = argv[++i];
     else if (a === '--keep') args.keep = true;
     else if (a === '-h' || a === '--help') {
-      console.log('ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--keep]');
+      console.log('ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--tx <server|n/a>] [--keep]');
       process.exit(0);
     } else fail(`Unknown argument: ${a}`);
   }
@@ -122,11 +123,15 @@ function killTree(child) {
 // The publisher writes every fragment to temp/pages/_includes before it starts Jekyll.
 // The helper IG needs neither Jekyll nor anything after it, so the process is stopped at
 // that point. This saves minutes and sidesteps hanging Jekyll runs.
-function runPublisher(dir, jar) {
+// tx is passed on as -tx (e.g. n/a when the terminology server is down); empty uses the
+// publisher's default.
+function runPublisher(dir, jar, tx) {
   return new Promise((resolve) => {
     log('Running the IG Publisher in the helper IG ...');
     const logFile = fs.createWriteStream(path.join(dir, 'publisher.log'));
-    const child = spawn('java', ['-Dfile.encoding=UTF-8', '-Xmx4g', '-jar', jar, '-ig', '.', '-no-sushi'],
+    const publisherArgs = ['-Dfile.encoding=UTF-8', '-Xmx4g', '-jar', jar, '-ig', '.', '-no-sushi'];
+    if (tx) publisherArgs.push('-tx', tx);
+    const child = spawn('java', publisherArgs,
       { cwd: dir, detached: process.platform !== 'win32' });
     let stopped = false;
     let buffer = '';
@@ -372,7 +377,7 @@ async function main() {
     fs.copyFileSync(found[i].file, path.join(work, 'input', 'resources', `StructureDefinition-${p.id}.json`));
   });
   runSushi(work);
-  await runPublisher(work, jar);
+  await runPublisher(work, jar, args.tx);
 
   // Copy fragments
   const includes = path.join(work, 'temp', 'pages', '_includes');
