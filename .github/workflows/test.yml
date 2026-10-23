@@ -9,6 +9,11 @@ on:
 jobs:
   render:
     runs-on: ubuntu-latest
+    # '' = publisher default (tx.fhir.org), 'n/a' = without terminology server
+    strategy:
+      fail-fast: false
+      matrix:
+        tx: [ '', 'n/a' ]
     container:
       image: ghcr.io/gefyra/ig-publisher-with-snapshot-support:latest
     steps:
@@ -22,6 +27,7 @@ jobs:
         uses: ./
         with:
           ig-dir: test/fixture-ig
+          tx: ${{ matrix.tx }}
 
       - name: Check generated includes
         shell: bash
