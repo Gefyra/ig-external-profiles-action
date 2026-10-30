@@ -16,7 +16,9 @@ jobs:
 
       - name: Unit tests
         shell: bash
-        run: node test/simplifier.test.js
+        run: |
+          node test/simplifier.test.js
+          node test/links.test.js
 
       - name: Render external profile of the fixture IG
         uses: ./
@@ -46,3 +48,14 @@ jobs:
             if (p.id !== "address-de-basis" || p.page !== "extern-address-de-basis.html" || p.resolverUrls.length !== 2) {
               console.error(JSON.stringify(d, null, 2)); process.exit(1);
             }' "$PWD/$data"
+
+      # Same IG without terminology server, as when tx.fhir.org is down
+      - name: Render without terminology server
+        uses: ./
+        with:
+          ig-dir: test/fixture-ig
+          tx: n/a
+
+      - name: Check includes without terminology server
+        shell: bash
+        run: test -s test/fixture-ig/input/includes/extern-address-de-basis-snapshot.xhtml

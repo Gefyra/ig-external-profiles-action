@@ -13,8 +13,10 @@ The IG Publisher renders profile tables only for resources of the IG itself. The
 
 1. Create the helper IG with the same dependencies and the same language as the target IG
 2. Copy the profiles from the package cache (`~/.fhir/packages`); SUSHI downloads missing packages
-3. Run SUSHI and the IG Publisher. The publisher is stopped as soon as the fragments are written (before Jekyll),
-   which saves several minutes
+3. Run SUSHI and the IG Publisher. Markdown links to canonical URLs in element texts (for example a ConceptMap in a
+   comment) are resolved through Simplifier first, because the publisher's link check in the target IG fails on them.
+   If the terminology server is not reachable, the helper IG is built without it (`-tx n/a`); the tables do not need
+   it. The publisher is stopped as soon as the fragments are written (before Jekyll), which saves several minutes
 4. Take the fragments from `temp/pages/_includes`, rewrite links into the definitions page to anchors on the same
    page, replace Simplifier syntax (see below), and write them to `input/includes/` of the target IG
 
@@ -95,6 +97,7 @@ jobs:
 | `ig-dir` | `.` | Directory of the IG |
 | `config` | `external-profiles.yaml` | Configuration file, relative to `ig-dir` |
 | `publisher-jar` | – | Path to `publisher.jar`; otherwise `input-cache/publisher.jar`, then `/opt/ig/publisher.jar` |
+| `tx` | `auto` | Terminology server of the helper IG: `auto` checks `tx.fhir.org` and builds without it (`-tx n/a`, with a warning) if it is not reachable; `n/a` or a URL is passed to the publisher as `-tx` |
 
 ### Locally
 
