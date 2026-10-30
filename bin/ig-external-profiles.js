@@ -4,7 +4,7 @@
 // must-support view, definitions) into the target IG as includes. The profiles themselves do
 // not become part of the target IG's package, only their HTML rendering does.
 //
-// Usage:  ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--keep]
+// Usage:  ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--tx <url|n/a|auto>] [--keep]
 // See README.md for the configuration file.
 
 'use strict';
@@ -16,7 +16,8 @@ const { spawn, spawnSync, execSync } = require('child_process');
 
 const DEFAULT_FRAGMENTS = ['diff', 'snapshot', 'snapshot-by-mustsupport', 'dict'];
 const PREFIX = 'extern-';
-const CANONICAL_TYPES = 'StructureDefinition|ValueSet|CodeSystem|NamingSystem|SearchParameter|CapabilityStatement|OperationDefinition';
+const CANONICAL_TYPES = 'StructureDefinition|ValueSet|CodeSystem|ConceptMap|NamingSystem|SearchParameter|CapabilityStatement|OperationDefinition|StructureMap';
+const DEFAULT_TX = 'https://tx.fhir.org';
 
 const LABELS = {
   en: {
@@ -46,15 +47,16 @@ function fail(msg) { console.error(`[ig-external-profiles] ERROR: ${msg}`); proc
 
 // --- Arguments -----------------------------------------------------------------
 function parseArgs(argv) {
-  const args = { ig: '.', config: null, publisher: null, keep: false };
+  const args = { ig: '.', config: null, publisher: null, tx: 'auto', keep: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--ig') args.ig = argv[++i];
     else if (a === '--config') args.config = argv[++i];
     else if (a === '--publisher') args.publisher = argv[++i];
+    else if (a === '--tx') args.tx = argv[++i] || 'auto';
     else if (a === '--keep') args.keep = true;
     else if (a === '-h' || a === '--help') {
-      console.log('ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--keep]');
+      console.log('ig-external-profiles [--ig <dir>] [--config <file>] [--publisher <jar>] [--tx <url|n/a|auto>] [--keep]');
       process.exit(0);
     } else fail(`Unknown argument: ${a}`);
   }
@@ -111,6 +113,42 @@ function runSushi(dir) {
   if (r.status !== 0) fail(`SUSHI failed in the helper IG, see ${path.join(dir, 'sushi.log')}`);
 }
 
+// The IG Publisher aborts right away when it cannot fetch the terminology server's
+// CapabilityStatement. The helper IG only needs the rendered tables, not code validation,
+// so it is built without a terminology server (-tx n/a) when the server is not reachable.
+async function txReachable(server, attempts = 3, retrySeconds = 10) {
+  const url = `${server.replace(/\/$/, '')}/r4/metadata?_summary=true`;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const res = await fetch(url, { headers: { Accept: 'application/fhir+json' }, signal: AbortSignal.timeout(30000) });
+      if (res.ok && (await res.json()).resourceType === 'CapabilityStatement') return true;
+      log(`${server} is not reachable (attempt ${i}/${attempts}): HTTP ${res.status}`);
+    } catch (e) {
+      // fetch() only says "fetch failed"; the cause names DNS, refused, TLS etc.
+      log(`${server} is not reachable (attempt ${i}/${attempts}): ${e.cause?.code || e.cause?.message || e.message}`);
+    }
+    if (i < attempts) await new Promise((r) => setTimeout(r, retrySeconds * 1000));
+  }
+  return false;
+}
+
+// Returns the value for -tx, or null to keep the publisher's default.
+async function resolveTx(tx) {
+  if (tx && tx !== 'auto') return tx;
+  if (await txReachable(DEFAULT_TX)) return null;
+  warnOffline();
+  return 'n/a';
+}
+
+function warnOffline() {
+  log(`Warning: ${DEFAULT_TX} is not reachable, building the helper IG without terminology server (-tx n/a)`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning::${DEFAULT_TX} is not reachable; external profiles were rendered without terminology server (-tx n/a).`);
+}
+
+// The server can still drop out between the check and the publisher's own request
+// (seen in CI as UnknownHostException right after a successful check).
+const TX_FAILURE = /UnknownHostException: tx\.fhir\.org|Error connecting to terminology server|tx\.fhir\.org[^\n]*(?:timed out|Connection refused)/i;
+
 function killTree(child) {
   if (process.platform === 'win32') {
     spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F']);
@@ -122,17 +160,23 @@ function killTree(child) {
 // The publisher writes every fragment to temp/pages/_includes before it starts Jekyll.
 // The helper IG needs neither Jekyll nor anything after it, so the process is stopped at
 // that point. This saves minutes and sidesteps hanging Jekyll runs.
-function runPublisher(dir, jar) {
+// Resolves to { ok, code, tail, txFailed }; ok is false if the publisher exited before
+// the fragments existed.
+function runPublisher(dir, jar, tx) {
   return new Promise((resolve) => {
-    log('Running the IG Publisher in the helper IG ...');
+    log(`Running the IG Publisher in the helper IG${tx ? ` (-tx ${tx})` : ''} ...`);
     const logFile = fs.createWriteStream(path.join(dir, 'publisher.log'));
-    const child = spawn('java', ['-Dfile.encoding=UTF-8', '-Xmx4g', '-jar', jar, '-ig', '.', '-no-sushi'],
+    const args = ['-Dfile.encoding=UTF-8', '-Xmx4g', '-jar', jar, '-ig', '.', '-no-sushi'];
+    if (tx) args.push('-tx', tx);
+    const child = spawn('java', args,
       { cwd: dir, detached: process.platform !== 'win32' });
     let stopped = false;
     let buffer = '';
+    let txFailed = false;
     const onData = (chunk) => {
       logFile.write(chunk);
       buffer = (buffer + chunk.toString()).slice(-4000);
+      if (TX_FAILURE.test(buffer)) txFailed = true;
       if (!stopped && /Generating combined package|Run jekyll:/.test(buffer)) {
         stopped = true;
         log('Fragments generated, stopping the publisher before Jekyll.');
@@ -143,12 +187,7 @@ function runPublisher(dir, jar) {
     child.stderr.on('data', onData);
     child.on('close', (code) => {
       logFile.end();
-      if (!stopped) {
-        // The helper IG lives in a temp folder that is gone after a CI run, so show the end of the log
-        console.error(buffer.split('\n').slice(-40).join('\n'));
-        fail(`IG Publisher exited before generating fragments (code ${code}), see ${path.join(dir, 'publisher.log')}`);
-      }
-      resolve();
+      resolve({ ok: stopped, code, tail: buffer, txFailed });
     });
   });
 }
@@ -217,6 +256,28 @@ function stripSimplifierSyntax(text) {
 function rewriteDescription(md) {
   const re = new RegExp(`\\]\\((https?://[^)\\s]+/(?:${CANONICAL_TYPES})/[^)\\s]+)\\)`, 'g');
   return (md || '').replace(re, (_, url) => `](${resolverUrl(url).replace('&amp;', '&')})`);
+}
+
+// The publisher renders Markdown in element texts (definition, comment, ...) as links. Links
+// to canonical URLs fail its link check in the target IG, so they are rewritten before the
+// profile goes into the helper IG.
+const MARKDOWN_FIELDS = ['definition', 'comment', 'requirements', 'meaningWhenMissing', 'orderMeaning'];
+
+function rewriteResourceTexts(res) {
+  let count = 0;
+  const fix = (obj, key) => {
+    if (typeof obj?.[key] !== 'string') return;
+    const out = rewriteDescription(obj[key]);
+    if (out !== obj[key]) { count++; obj[key] = out; }
+  };
+  fix(res, 'purpose');
+  for (const part of ['differential', 'snapshot']) {
+    for (const el of res[part]?.element || []) {
+      for (const f of MARKDOWN_FIELDS) fix(el, f);
+      fix(el.binding, 'description');
+    }
+  }
+  return count;
 }
 
 function infoFragment(p, res, L) {
@@ -369,10 +430,23 @@ async function main() {
   }
   profiles.forEach((p, i) => {
     if (!found[i]) fail(`StructureDefinition "${p.id}" not found in package ${p.package}`);
-    fs.copyFileSync(found[i].file, path.join(work, 'input', 'resources', `StructureDefinition-${p.id}.json`));
+    const res = JSON.parse(fs.readFileSync(found[i].file, 'utf8'));
+    const links = rewriteResourceTexts(res);
+    if (links) log(`${p.id}: links to canonical URLs in ${links} element text(s) resolved through Simplifier`);
+    fs.writeFileSync(path.join(work, 'input', 'resources', `StructureDefinition-${p.id}.json`), JSON.stringify(res, null, 2));
   });
   runSushi(work);
-  await runPublisher(work, jar);
+  const tx = await resolveTx(args.tx);
+  let run = await runPublisher(work, jar, tx);
+  if (!run.ok && run.txFailed && tx === null) {
+    warnOffline();
+    run = await runPublisher(work, jar, 'n/a');
+  }
+  if (!run.ok) {
+    // The helper IG lives in a temp folder that is gone after a CI run, so show the end of the log
+    console.error(run.tail.split('\n').slice(-40).join('\n'));
+    fail(`IG Publisher exited before generating fragments (code ${run.code}), see ${path.join(work, 'publisher.log')}`);
+  }
 
   // Copy fragments
   const includes = path.join(work, 'temp', 'pages', '_includes');
@@ -441,4 +515,4 @@ async function main() {
 
 if (require.main === module) main().catch((e) => fail(e.stack || String(e)));
 
-module.exports = { stripSimplifierSyntax };
+module.exports = { stripSimplifierSyntax, rewriteResourceTexts };
