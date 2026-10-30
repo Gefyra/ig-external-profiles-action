@@ -11,8 +11,8 @@ const comment = 'mit Hilfe einer [ConceptMap](http://fhir.de/ConceptMap/OPS-SNOM
 const res = {
   differential: { element: [{ id: 'Procedure.category', comment }] },
   snapshot: { element: [
-    { id: 'Procedure.category', comment, binding: { description: 'siehe [Seite](https://example.org/seite.html)' } },
-    { id: 'Procedure.code', definition: 'kein Link' },
+    { id: 'Procedure.category', comment, binding: { description: 'see [page](https://example.org/page.html)' } },
+    { id: 'Procedure.code', definition: 'no link' },
   ] },
 };
 
@@ -22,7 +22,7 @@ const expected = 'mit Hilfe einer [ConceptMap](https://simplifier.net/resolve?ca
 assert.strictEqual(res.differential.element[0].comment, expected);
 assert.strictEqual(res.snapshot.element[0].comment, expected);
 // Links to web pages and texts without links stay untouched
-assert.strictEqual(res.snapshot.element[0].binding.description, 'siehe [Seite](https://example.org/seite.html)');
-assert.strictEqual(res.snapshot.element[1].definition, 'kein Link');
+assert.strictEqual(res.snapshot.element[0].binding.description, 'see [page](https://example.org/page.html)');
+assert.strictEqual(res.snapshot.element[1].definition, 'no link');
 assert.strictEqual(rewriteResourceTexts({}), 0);
 console.log('links: passed');
