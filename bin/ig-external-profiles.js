@@ -136,10 +136,18 @@ async function txReachable(server, attempts = 3, retrySeconds = 10) {
 async function resolveTx(tx) {
   if (tx && tx !== 'auto') return tx;
   if (await txReachable(DEFAULT_TX)) return null;
-  log(`Warning: ${DEFAULT_TX} is not reachable, building the helper IG without terminology server (-tx n/a)`);
-  if (process.env.GITHUB_ACTIONS) console.log(`::warning::${DEFAULT_TX} is not reachable; external profiles were rendered without terminology server (-tx n/a).`);
+  warnOffline();
   return 'n/a';
 }
+
+function warnOffline() {
+  log(`Warning: ${DEFAULT_TX} is not reachable, building the helper IG without terminology server (-tx n/a)`);
+  if (process.env.GITHUB_ACTIONS) console.log(`::warning::${DEFAULT_TX} is not reachable; external profiles were rendered without terminology server (-tx n/a).`);
+}
+
+// The server can still drop out between the check and the publisher's own request
+// (seen in CI as UnknownHostException right after a successful check).
+const TX_FAILURE = /UnknownHostException: tx\.fhir\.org|Error connecting to terminology server|tx\.fhir\.org[^\n]*(?:timed out|Connection refused)/i;
 
 function killTree(child) {
   if (process.platform === 'win32') {
@@ -152,6 +160,8 @@ function killTree(child) {
 // The publisher writes every fragment to temp/pages/_includes before it starts Jekyll.
 // The helper IG needs neither Jekyll nor anything after it, so the process is stopped at
 // that point. This saves minutes and sidesteps hanging Jekyll runs.
+// Resolves to { ok, code, tail, txFailed }; ok is false if the publisher exited before
+// the fragments existed.
 function runPublisher(dir, jar, tx) {
   return new Promise((resolve) => {
     log(`Running the IG Publisher in the helper IG${tx ? ` (-tx ${tx})` : ''} ...`);
@@ -162,9 +172,11 @@ function runPublisher(dir, jar, tx) {
       { cwd: dir, detached: process.platform !== 'win32' });
     let stopped = false;
     let buffer = '';
+    let txFailed = false;
     const onData = (chunk) => {
       logFile.write(chunk);
       buffer = (buffer + chunk.toString()).slice(-4000);
+      if (TX_FAILURE.test(buffer)) txFailed = true;
       if (!stopped && /Generating combined package|Run jekyll:/.test(buffer)) {
         stopped = true;
         log('Fragments generated, stopping the publisher before Jekyll.');
@@ -175,12 +187,7 @@ function runPublisher(dir, jar, tx) {
     child.stderr.on('data', onData);
     child.on('close', (code) => {
       logFile.end();
-      if (!stopped) {
-        // The helper IG lives in a temp folder that is gone after a CI run, so show the end of the log
-        console.error(buffer.split('\n').slice(-40).join('\n'));
-        fail(`IG Publisher exited before generating fragments (code ${code}), see ${path.join(dir, 'publisher.log')}`);
-      }
-      resolve();
+      resolve({ ok: stopped, code, tail: buffer, txFailed });
     });
   });
 }
@@ -429,7 +436,17 @@ async function main() {
     fs.writeFileSync(path.join(work, 'input', 'resources', `StructureDefinition-${p.id}.json`), JSON.stringify(res, null, 2));
   });
   runSushi(work);
-  await runPublisher(work, jar, await resolveTx(args.tx));
+  const tx = await resolveTx(args.tx);
+  let run = await runPublisher(work, jar, tx);
+  if (!run.ok && run.txFailed && tx === null) {
+    warnOffline();
+    run = await runPublisher(work, jar, 'n/a');
+  }
+  if (!run.ok) {
+    // The helper IG lives in a temp folder that is gone after a CI run, so show the end of the log
+    console.error(run.tail.split('\n').slice(-40).join('\n'));
+    fail(`IG Publisher exited before generating fragments (code ${run.code}), see ${path.join(work, 'publisher.log')}`);
+  }
 
   // Copy fragments
   const includes = path.join(work, 'temp', 'pages', '_includes');

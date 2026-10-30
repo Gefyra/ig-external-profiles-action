@@ -97,7 +97,7 @@ jobs:
 | `ig-dir` | `.` | Directory of the IG |
 | `config` | `external-profiles.yaml` | Configuration file, relative to `ig-dir` |
 | `publisher-jar` | – | Path to `publisher.jar`; otherwise `input-cache/publisher.jar`, then `/opt/ig/publisher.jar` |
-| `tx` | `auto` | Terminology server of the helper IG: `auto` checks `tx.fhir.org` and builds without it (`-tx n/a`, with a warning) if it is not reachable; `n/a` or a URL is passed to the publisher as `-tx` |
+| `tx` | `auto` | Terminology server of the helper IG: `auto` checks `tx.fhir.org` and builds without it (`-tx n/a`, with a warning) if it is not reachable, and retries with `-tx n/a` if the publisher fails on the server later; `n/a` or a URL is passed to the publisher as `-tx` |
 
 ### Locally
 
